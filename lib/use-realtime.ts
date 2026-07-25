@@ -7,6 +7,8 @@ const MAX_RETRIES = 10
 const BASE_RETRY_MS = 3000
 const MAX_RETRY_MS = 60000
 
+const SSE_DEBOUNCE_MS = 500
+
 export type RealtimeHandlers = {
   onInboxChanged?: () => void
   onAliasesChanged?: () => void
@@ -22,37 +24,38 @@ export function useRealtime({ onInboxChanged, onAliasesChanged, onBillingChanged
     handlersRef.current = { onInboxChanged, onAliasesChanged, onBillingChanged }
   }, [onInboxChanged, onAliasesChanged, onBillingChanged])
 
+  const debounceTimersRef = useRef<Record<string, number | undefined>>({})
+
   const dispatch = useCallback((event: RealtimeEvent) => {
     if (event === "connected") return
-    if (event === "inbox.changed") handlersRef.current.onInboxChanged?.()
-    if (event === "aliases.changed") handlersRef.current.onAliasesChanged?.()
-    if (event === "billing.changed") handlersRef.current.onBillingChanged?.()
+
+    const handler =
+      event === "inbox.changed" ? handlersRef.current.onInboxChanged
+      : event === "aliases.changed" ? handlersRef.current.onAliasesChanged
+      : event === "billing.changed" ? handlersRef.current.onBillingChanged
+      : null
+
+    if (!handler) return
+
+    if (debounceTimersRef.current[event]) {
+      window.clearTimeout(debounceTimersRef.current[event])
+    }
+    debounceTimersRef.current[event] = window.setTimeout(() => {
+      delete debounceTimersRef.current[event]
+      handler()
+    }, SSE_DEBOUNCE_MS)
   }, [])
 
   useEffect(() => {
     if (typeof window === "undefined") return
     let cancelled = false
     let abortController: AbortController | null = null
-    let retryTimer: ReturnType<typeof window.setTimeout> | undefined
+    let retryTimer: number | undefined
     let retries = 0
 
-    function getToken(): string | null {
-      return localStorage.getItem("aeri_session_token")
-    }
-
-    function isTokenExpired(token: string | null): boolean {
-      if (!token) return true
-      try {
-        const base64 = token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/")
-        const payload = JSON.parse(atob(base64))
-        return Date.now() >= (payload.exp || 0) * 1000
-      } catch {
-        return true
-      }
-    }
+    const getToken = (): string | null => localStorage.getItem("aeri_session_token")
 
     function expireSession() {
-      console.log("[aeri] session expired, clearing token and navigating to sign-in")
       localStorage.removeItem("aeri_session_token")
       setConnected(false)
       setReconnecting(false)
@@ -63,13 +66,22 @@ export function useRealtime({ onInboxChanged, onAliasesChanged, onBillingChanged
       }
     }
 
-    async function openSse() {
-      if (cancelled) return
-      const token = getToken()
-      if (!token || isTokenExpired(token)) {
-        expireSession()
+    function computeRetryDelay() {
+      return Math.min(BASE_RETRY_MS * Math.pow(1.5, retries), MAX_RETRY_MS)
+    }
+
+    function scheduleReconnect() {
+      if (cancelled || retries >= MAX_RETRIES) {
+        setConnected(false)
+        setReconnecting(false)
         return
       }
+      setReconnecting(true)
+      retryTimer = window.setTimeout(connect, computeRetryDelay())
+    }
+
+    async function openSse(token: string) {
+      if (cancelled) return
 
       abortController = new AbortController()
       try {
@@ -79,30 +91,19 @@ export function useRealtime({ onInboxChanged, onAliasesChanged, onBillingChanged
         })
 
         if (!res.ok) {
-          console.log(`[aeri] SSE stream returned ${res.status}`)
           abortController = null
           if (res.status === 401) {
             expireSession()
             return
           }
           retries++
-          if (cancelled) return
-          if (retries >= MAX_RETRIES) {
-            console.log("[aeri] SSE gave up after max retries")
-            setConnected(false)
-            setReconnecting(false)
-            return
-          }
-          const delay = Math.min(BASE_RETRY_MS * Math.pow(1.5, retries - 1), MAX_RETRY_MS)
-          setReconnecting(true)
-          retryTimer = window.setTimeout(connect, delay)
+          scheduleReconnect()
           return
         }
 
         retries = 0
         setConnected(true)
         setReconnecting(false)
-        console.log("[aeri] SSE stream connected")
 
         const reader = res.body!.getReader()
         const decoder = new TextDecoder()
@@ -119,8 +120,7 @@ export function useRealtime({ onInboxChanged, onAliasesChanged, onBillingChanged
             if (line.startsWith("event:")) {
               eventType = line.slice(6).trim()
             } else if (line.startsWith("data:")) {
-              const data = line.slice(5).trim()
-              if (eventType === "connected") continue
+              if (eventType === "connected") { eventType = ""; continue }
               if (eventType === "inbox.changed" || eventType === "aliases.changed" || eventType === "billing.changed" || eventType === "new_message") {
                 dispatch(eventType === "new_message" ? "inbox.changed" : eventType as RealtimeEvent)
               }
@@ -132,38 +132,29 @@ export function useRealtime({ onInboxChanged, onAliasesChanged, onBillingChanged
         }
       } catch (err) {
         if (cancelled || (err instanceof DOMException && err.name === "AbortError")) return
-        console.log("[aeri] SSE stream error:", err)
       } finally {
         abortController = null
       }
 
       if (cancelled) return
-      retries++
       const currentToken = getToken()
-      if (!currentToken || isTokenExpired(currentToken)) {
+      if (!currentToken) {
         expireSession()
         return
       }
-      if (retries >= MAX_RETRIES) {
-        console.log("[aeri] SSE gave up after max retries")
-        setConnected(false)
-        setReconnecting(false)
-        return
-      }
-      const delay = Math.min(BASE_RETRY_MS * Math.pow(1.5, retries - 1), MAX_RETRY_MS)
-      setReconnecting(true)
-      retryTimer = window.setTimeout(connect, delay)
+      retries++
+      scheduleReconnect()
     }
 
     function connect() {
       if (abortController) { abortController.abort(); abortController = null }
       if (retryTimer) window.clearTimeout(retryTimer)
       const token = getToken()
-      if (!token || isTokenExpired(token)) {
+      if (!token) {
         expireSession()
         return
       }
-      openSse()
+      openSse(token)
     }
 
     connect()
@@ -171,6 +162,14 @@ export function useRealtime({ onInboxChanged, onAliasesChanged, onBillingChanged
       cancelled = true
       if (retryTimer) window.clearTimeout(retryTimer)
       if (abortController) abortController.abort()
+
+      for (const key of Object.keys(debounceTimersRef.current)) {
+        if (debounceTimersRef.current[key]) {
+          window.clearTimeout(debounceTimersRef.current[key])
+        }
+      }
+      debounceTimersRef.current = {}
+
       setConnected(false)
       setReconnecting(false)
     }

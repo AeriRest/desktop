@@ -123,7 +123,7 @@ export function CreateAliasModal({
   defaultDomain,
   canCustomize,
   onUpgrade,
-  extraDomains = [],
+  extraDomains,
 }: CreateAliasModalProps) {
   const reduced = useReducedMotion()
   const requestId = useRef(0)
@@ -136,7 +136,7 @@ export function CreateAliasModal({
   const [availability, setAvailability] = useState<Availability>("idle")
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [resolvedExtraDomains, setResolvedExtraDomains] = useState(extraDomains)
+  const [resolvedExtraDomains, setResolvedExtraDomains] = useState<AliasDomainOption[]>(extraDomains ?? [])
   const [templateId, setTemplateId] = useState<string | null>(null)
 
   const isTemporary = mode === "temporary" || !canCustomize
@@ -163,7 +163,9 @@ export function CreateAliasModal({
   }
 
   useEffect(() => {
-    setResolvedExtraDomains(extraDomains)
+    if (extraDomains && extraDomains.length > 0) {
+      setResolvedExtraDomains(extraDomains)
+    }
   }, [extraDomains])
 
   useEffect(() => {
