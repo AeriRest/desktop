@@ -1,7 +1,7 @@
 "use client"
 
 import { useMemo, useState, type ReactNode } from "react"
-import DOMPurify, { type Config } from "dompurify"
+import DOMPurify, { type Config, type UponSanitizeAttributeHookEvent } from "dompurify"
 import { Icon } from "@/components/icon"
 import { cn } from "@/lib/utils"
 
@@ -12,9 +12,6 @@ const SANITIZE_CONFIG: Config = {
   ADD_ATTR: ["target"],
   FORBID_TAGS: ["script", "style", "iframe", "object", "embed", "form", "input", "button"],
 }
-
-let domPurifyHooksInstalled = false
-let blockRemoteImages = true
 
 function isRemoteUrl(value: string): boolean {
   const trimmed = value.trim().toLowerCase()
@@ -43,12 +40,11 @@ function htmlMayHaveRemoteImages(html: string): boolean {
   )
 }
 
-function ensureDomPurifyHooks() {
-  if (typeof window === "undefined" || domPurifyHooksInstalled) return
+function sanitizeHtml(html: string, allowRemoteImages: boolean): string {
+  if (typeof window === "undefined") return ""
 
-  DOMPurify.addHook("uponSanitizeAttribute", (_node, data) => {
-    if (!blockRemoteImages) return
-
+  const uponSanitizeAttr = (_node: Element, data: UponSanitizeAttributeHookEvent) => {
+    if (allowRemoteImages) return
     const name = data.attrName.toLowerCase()
     if (name === "src" && isRemoteUrl(data.attrValue)) {
       data.attrValue = ""
@@ -64,35 +60,39 @@ function ensureDomPurifyHooks() {
       data.attrValue = ""
       data.keepAttr = false
     }
-  })
+  }
 
-  DOMPurify.addHook("afterSanitizeAttributes", (node) => {
-    if (!blockRemoteImages || node.tagName !== "IMG") return
-
-    const src = node.getAttribute("src")?.trim() ?? ""
-    const srcset = node.getAttribute("srcset")?.trim() ?? ""
-    const blocked =
-      (src && isRemoteUrl(src)) || (srcset && srcsetHasRemoteUrl(srcset))
-
-    if (!blocked) return
-
-    const placeholder = document.createElement("p")
-    placeholder.className = "text-xs text-muted-foreground"
-    placeholder.textContent = "[Remote image blocked]"
-    node.replaceWith(placeholder)
-  })
-
-  DOMPurify.addHook("afterSanitizeAttributes", (node) => {
+  const afterSanitizeAttrs = (node: Element) => {
+    if (!allowRemoteImages && node.tagName === "IMG") {
+      const src = node.getAttribute("src")?.trim() ?? ""
+      const srcset = node.getAttribute("srcset")?.trim() ?? ""
+      const blocked = (src && isRemoteUrl(src)) || (srcset && srcsetHasRemoteUrl(srcset))
+      if (blocked) {
+        const placeholder = document.createElement("p")
+        placeholder.className = "text-xs text-muted-foreground"
+        placeholder.textContent = "[Remote image blocked]"
+        node.replaceWith(placeholder)
+      }
+      return
+    }
     if (node.tagName === "A") {
       node.setAttribute("target", "_blank")
       node.setAttribute("rel", "noopener noreferrer")
     }
-    if (node.tagName === "IMG" && !blockRemoteImages) {
+    if (node.tagName === "IMG" && allowRemoteImages) {
       node.setAttribute("loading", "lazy")
     }
-  })
+  }
 
-  domPurifyHooksInstalled = true
+  DOMPurify.addHook("uponSanitizeAttribute", uponSanitizeAttr)
+  DOMPurify.addHook("afterSanitizeAttributes", afterSanitizeAttrs)
+
+  const result = String(DOMPurify.sanitize(html, SANITIZE_CONFIG)).trim()
+
+  DOMPurify.removeHook("uponSanitizeAttribute")
+  DOMPurify.removeHook("afterSanitizeAttributes")
+
+  return result || ""
 }
 
 function linkifyText(text: string) {
@@ -145,10 +145,7 @@ export function MessageBody({ body, bodyHtml, className }: MessageBodyProps) {
 
   const sanitizedHtml = useMemo(() => {
     if (!bodyHtml?.trim()) return null
-    ensureDomPurifyHooks()
-    blockRemoteImages = !imagesLoaded
-    const clean = String(DOMPurify.sanitize(bodyHtml, SANITIZE_CONFIG)).trim()
-    return clean || null
+    return sanitizeHtml(bodyHtml, imagesLoaded)
   }, [bodyHtml, imagesLoaded])
 
   return (
