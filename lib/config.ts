@@ -1,11 +1,11 @@
 const PROD_API_BASE = "https://api.aeri.rest/api/v1"
 
-/** Same-origin `/api/v1` only under Next/Electron `http(s)://localhost` (proxied). Packaged `app://` uses the real API. */
+/** Same-origin `/api/v1` under Next/Electron or `app://localhost` (proxied). Direct calls use the real API. */
 export function getApiBase(): string {
   if (typeof window !== "undefined") {
     const { protocol, hostname } = window.location
     if (
-      (protocol === "http:" || protocol === "https:") &&
+      (protocol === "http:" || protocol === "https:" || protocol === "app:") &&
       (hostname === "localhost" || hostname === "127.0.0.1")
     ) {
       return "/api/v1"

@@ -63,10 +63,57 @@ function updateTray(state) {
 
 function createTrayPanel() {
   if (trayPanel && !trayPanel.isDestroyed()) {
-    trayPanel.focus()
+    if (trayPanel.isVisible()) {
+      trayPanel.hide()
+    } else {
+      positionTrayPanel()
+      trayPanel.show()
+    }
     return
   }
 
+  trayPanel = new BrowserWindow({
+    width: 300,
+    height: 520,
+    show: false,
+    frame: false,
+    resizable: false,
+    skipTaskbar: true,
+    alwaysOnTop: true,
+    movable: false,
+    focusable: true,
+    hasShadow: true,
+    transparent: true,
+    backgroundColor: "#00000000",
+    webPreferences: {
+      preload: path.join(__dirname, "preload.js"),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  })
+
+  if (process.platform === "darwin") trayPanel.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+
+  trayPanel.loadFile(path.join(__dirname, "tray.html"))
+
+  trayPanel.once("ready-to-show", () => {
+    positionTrayPanel()
+    trayPanel.show()
+    trayPanel.webContents.send("tray-state", trayState)
+  })
+
+  trayPanel.on("blur", () => {
+    if (trayPanel && !trayPanel.isDestroyed()) {
+      trayPanel.hide()
+    }
+  })
+
+  trayPanel.on("closed", () => { trayPanel = null })
+}
+
+function positionTrayPanel() {
+  if (!trayPanel || trayPanel.isDestroyed()) return
   const trayIconBounds = tray.getBounds()
   const display = screen.getDisplayMatching(trayIconBounds)
   const screenBounds = display.bounds
@@ -87,57 +134,12 @@ function createTrayPanel() {
     x = screenBounds.x + margin
   }
 
-  trayPanel = new BrowserWindow({
-    x: Math.round(x),
-    y: Math.round(y),
-    width: panelWidth,
-    height: panelHeight,
-    show: false,
-    frame: false,
-    resizable: false,
-    skipTaskbar: true,
-    alwaysOnTop: true,
-    movable: false,
-    focusable: true,
-    hasShadow: true,
-    transparent: true,
-    backgroundColor: "#00000000",
-    webPreferences: {
-      preload: path.join(__dirname, "preload.js"),
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: false,
-    },
-  })
-
-  if (process.platform === "darwin") trayPanel.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
-
-  if (isDev) {
-    trayPanel.loadFile(path.join(__dirname, "tray.html"))
-  } else {
-    const outDir = path.join(__dirname, "..", "out")
-    trayPanel.loadFile(path.join(__dirname, "tray.html"))
-  }
-
-  trayPanel.once("ready-to-show", () => {
-    trayPanel.show()
-    trayPanel.webContents.send("tray-state", trayState)
-  })
-
-  trayPanel.on("blur", () => {
-    if (trayPanel && !trayPanel.isDestroyed()) {
-      trayPanel.hide()
-    }
-  })
-
-  trayPanel.on("closed", () => { trayPanel = null })
+  trayPanel.setPosition(Math.round(x), Math.round(y))
 }
 
 function closeTrayPanel() {
   if (trayPanel && !trayPanel.isDestroyed()) {
     trayPanel.hide()
-    trayPanel.close()
-    trayPanel = null
   }
 }
 
@@ -158,12 +160,13 @@ function createMainWindow() {
     minHeight: 480,
     backgroundColor: "#09090b",
     show: false,
+    backgroundThrottling: false,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
       nodeIntegration: false,
-      webSecurity: isDev,
-      sandbox: false,
+      webSecurity: true,
+      sandbox: true,
     },
   }
 
@@ -171,7 +174,7 @@ function createMainWindow() {
     windowOptions.titleBarStyle = "hiddenInset"
     windowOptions.trafficLightPosition = { x: 14, y: 18 }
     windowOptions.vibrancy = "under-window"
-    windowOptions.visualEffectState = "active"
+      windowOptions.visualEffectState = "followsWindowActiveState"
   }
 
   mainWindow = new BrowserWindow(windowOptions)
@@ -321,11 +324,41 @@ app.whenReady().then(() => {
   }
 
   if (!isDev) {
-    const outDir = path.join(__dirname, "..", "out")
-    protocol.handle("app", (request) => {
+    const outDir = path.resolve(__dirname, "..", "out")
+    protocol.handle("app", async (request) => {
       const pathname = decodeURIComponent(new URL(request.url).pathname)
-      let filePath = path.join(outDir, pathname)
 
+      if (pathname.startsWith("/api/v1/")) {
+        const apiUrl = `${API_URL}${pathname}`
+        const headers = new Headers(request.headers)
+        headers.delete("host")
+        headers.delete("origin")
+        headers.delete("referer")
+
+        let body = null
+        if (request.body && request.method !== "GET" && request.method !== "HEAD") {
+          try {
+            body = await request.text()
+          } catch {
+            body = null
+          }
+        }
+
+        return net.fetch(apiUrl, {
+          method: request.method,
+          headers,
+          body,
+        })
+      }
+
+      const requestedPath = path.resolve(outDir, pathname.replace(/^\/+/, ""))
+
+      if (!requestedPath.startsWith(outDir + path.sep)) {
+        console.error("[aeri] Blocked path traversal attempt:", request.url)
+        return { status: 403 }
+      }
+
+      let filePath = requestedPath
       if (fs.existsSync(filePath) && fs.statSync(filePath).isDirectory()) {
         filePath = path.join(filePath, "index.html")
       }
@@ -348,11 +381,7 @@ app.whenReady().then(() => {
   tray.setToolTip("aeri — No unread messages")
 
   tray.on("click", () => {
-    if (trayPanel && !trayPanel.isDestroyed()) {
-      closeTrayPanel()
-    } else {
-      createTrayPanel()
-    }
+    createTrayPanel()
   })
 
   app.on("activate", () => {
@@ -364,7 +393,13 @@ app.whenReady().then(() => {
 })
 
 app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit() })
-app.on("before-quit", () => { isQuitting = true })
+app.on("before-quit", () => {
+  isQuitting = true
+  if (trayPanel && !trayPanel.isDestroyed()) {
+    trayPanel.close()
+    trayPanel = null
+  }
+})
 
 // IPC
 ipcMain.on("update-tray", (_event, state) => updateTray(state))
