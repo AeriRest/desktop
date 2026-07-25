@@ -84,6 +84,7 @@ export function ComposePanel({
   const draftIdRef = useRef<string | null>(null)
   const draftReadyRef = useRef(false)
   const saveTimerRef = useRef<number | null>(null)
+  const lastSavedRef = useRef<string>("")
 
   useEffect(() => {
     let cancelled = false
@@ -96,6 +97,8 @@ export function ComposePanel({
           : defaultFrom && fromAddresses.includes(defaultFrom)
             ? defaultFrom
             : fromAddresses[0] ?? ""
+
+      lastSavedRef.current = ""
 
       if (replyTo) {
         draftIdRef.current = null
@@ -182,6 +185,18 @@ export function ComposePanel({
     if (!draftReadyRef.current || replyTo) return
     if (!to.trim() && !subject.trim() && !body.trim()) return
 
+    const payload = JSON.stringify({
+      from_alias: fromAlias || null,
+      to_address: to || null,
+      cc: cc || null,
+      bcc: bcc || null,
+      subject,
+      body: htmlMode ? htmlToPlainText(body.trim()) : body,
+      body_html: htmlMode ? body : null,
+    })
+
+    if (payload === lastSavedRef.current) return
+
     if (saveTimerRef.current !== null) {
       window.clearTimeout(saveTimerRef.current)
     }
@@ -200,6 +215,7 @@ export function ComposePanel({
       )
         .then((saved) => {
           draftIdRef.current = saved.id
+          lastSavedRef.current = payload
         })
         .catch(() => undefined)
     }, 1500)

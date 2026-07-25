@@ -1,6 +1,6 @@
 {
   "name": "aeri-desktop",
-  "version": "1.0.10",
+  "version": "1.0.11",
   "private": true,
   "description": "aeri — Anonymous, private email desktop client",
   "main": "electron/main.js",
@@ -39,7 +39,7 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "concurrently": "^9.1.0",
-    "electron": "^35.0.0",
+    "electron": "35.0.0",
     "electron-builder": "^26.0.0",
     "postcss": "^8.5",
     "tailwindcss": "^4.2.0",
@@ -107,7 +107,9 @@
       "target": [
         {
           "target": "nsis",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ],
       "icon": "public/icon.png"
