@@ -1,0 +1,8 @@
+title = "Aeri desktop secret scanning"
+
+[extend]
+useDefault = true
+
+[allowlist]
+files = [".env.example", "*.md"]
+regexes = ["change-me-to-a-long-random-secret", "your-.*-key", "CHANGE_ME"]
