@@ -162,7 +162,7 @@ function createMainWindow() {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
       nodeIntegration: false,
-      webSecurity: isDev,
+      webSecurity: true,
       sandbox: false,
     },
   }
@@ -321,11 +321,17 @@ app.whenReady().then(() => {
   }
 
   if (!isDev) {
-    const outDir = path.join(__dirname, "..", "out")
+    const outDir = path.resolve(__dirname, "..", "out")
     protocol.handle("app", (request) => {
       const pathname = decodeURIComponent(new URL(request.url).pathname)
-      let filePath = path.join(outDir, pathname)
+      const requestedPath = path.resolve(outDir, pathname.replace(/^\/+/, ""))
 
+      if (!requestedPath.startsWith(outDir + path.sep)) {
+        console.error("[aeri] Blocked path traversal attempt:", request.url)
+        return { status: 403 }
+      }
+
+      let filePath = requestedPath
       if (fs.existsSync(filePath) && fs.statSync(filePath).isDirectory()) {
         filePath = path.join(filePath, "index.html")
       }
