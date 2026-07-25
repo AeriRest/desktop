@@ -71,7 +71,7 @@
       "category": "public.app-category.productivity",
       "icon": "public/icon.png",
       "identity": null,
-      "hardenedRuntime": false,
+      "hardenedRuntime": true,
       "gatekeeperAssess": false,
       "entitlements": "build/entitlements.mac.plist",
       "entitlementsInherit": "build/entitlements.mac.plist",
