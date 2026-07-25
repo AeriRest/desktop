@@ -35,7 +35,7 @@
   "devDependencies": {
     "@iconify-json/ph": "^1.2.2",
     "@tailwindcss/postcss": "^4.2.0",
-    "@types/node": "^24",
+    "@types/node": "^26",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "concurrently": "^9.1.0",
