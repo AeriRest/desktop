@@ -59,8 +59,25 @@ function getAuthToken(): string | null {
   return localStorage.getItem("aeri_session_token")
 }
 
+const inflight = new Map<string, Promise<unknown>>()
+
+function getInflightKey(method: string, url: string, body?: BodyInit | null): string {
+  if (method !== "GET") return ""
+  let bodyKey = ""
+  if (typeof body === "string") bodyKey = body
+  return `${method}:${url}:${bodyKey}`
+}
+
 async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
   const url = `${getApiBaseUrl()}${path}`
+  const method = (options.method || "GET").toUpperCase()
+
+  if (method === "GET") {
+    const key = getInflightKey(method, url, options.body)
+    const existing = inflight.get(key)
+    if (existing) return existing as Promise<T>
+  }
+
   const headers = new Headers(options.headers)
   const token = getAuthToken()
   if (token) headers.set("Authorization", `Bearer ${token}`)
@@ -68,23 +85,30 @@ async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> 
     headers.set("Content-Type", "application/json")
   }
 
-  const response = await fetch(url, { ...options, headers })
+  const responsePromise = fetch(url, { ...options, headers }).then(async (response) => {
+    if (!response.ok) {
+      let body: unknown
+      try { body = await response.json() } catch { body = undefined }
+      const detail = body && typeof body === "object" && "detail" in body
+        ? String((body as Record<string, unknown>).detail)
+        : undefined
+      throw new ApiError(
+        detail ?? `API request failed: ${response.status} ${response.statusText}`,
+        response.status,
+        body,
+      )
+    }
+    if (response.status === 204) return undefined as T
+    return response.json() as Promise<T>
+  })
 
-  if (!response.ok) {
-    let body: unknown
-    try { body = await response.json() } catch { body = undefined }
-    const detail = body && typeof body === "object" && "detail" in body
-      ? String((body as Record<string, unknown>).detail)
-      : undefined
-    throw new ApiError(
-      detail ?? `API request failed: ${response.status} ${response.statusText}`,
-      response.status,
-      body,
-    )
+  if (method === "GET") {
+    const key = getInflightKey(method, url, options.body)
+    inflight.set(key, responsePromise)
+    responsePromise.finally(() => { inflight.delete(key) })
   }
 
-  if (response.status === 204) return undefined as T
-  return response.json() as Promise<T>
+  return responsePromise
 }
 
 export async function checkHealth(): Promise<{ status: string }> {
