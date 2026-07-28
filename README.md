@@ -40,6 +40,14 @@ Produces an Apple Silicon DMG in `dist-electron/` (`aeri-1.0.4-arm64.dmg`). The 
 - **React 19** + **Motion** — UI and animations
 - **Tailwind CSS 4** — styling with CSS variable theming
 
+See [SECURITY.md](./SECURITY.md) for Electron hardening and credential storage rules.
+
+## Tests
+
+```bash
+npm test
+```
+
 ## Project structure
 
 ```

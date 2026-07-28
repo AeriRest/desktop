@@ -1,11 +1,16 @@
 const { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, shell, protocol, net, screen } = require("electron")
 const path = require("path")
-const fs = require("fs")
+const {
+  attachNavigationGuards,
+  openExternalHttps,
+  resolveAppProtocolPath,
+} = require("./security")
 
 const isDev = !app.isPackaged
 const API_URL = process.env.API_URL || "https://api.aeri.rest"
 const GITHUB_REPO = process.env.GITHUB_REPO || "aerirest/desktop"
 const NEXT_PORT = 3000
+const navOptions = { isDev, nextPort: NEXT_PORT }
 
 if (!isDev) {
   protocol.registerSchemesAsPrivileged([
@@ -106,18 +111,20 @@ function createTrayPanel() {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false,
+      sandbox: true,
+      webSecurity: true,
     },
   })
 
   if (process.platform === "darwin") trayPanel.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
 
-  if (isDev) {
-    trayPanel.loadFile(path.join(__dirname, "tray.html"))
-  } else {
-    const outDir = path.join(__dirname, "..", "out")
-    trayPanel.loadFile(path.join(__dirname, "tray.html"))
-  }
+  attachNavigationGuards(trayPanel.webContents, navOptions)
+  trayPanel.webContents.setWindowOpenHandler(({ url: linkUrl }) => {
+    openExternalHttps(shell, linkUrl)
+    return { action: "deny" }
+  })
+
+  trayPanel.loadFile(path.join(__dirname, "tray.html"))
 
   trayPanel.once("ready-to-show", () => {
     trayPanel.show()
@@ -162,8 +169,8 @@ function createMainWindow() {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
       nodeIntegration: false,
-      webSecurity: isDev,
-      sandbox: false,
+      webSecurity: true,
+      sandbox: true,
     },
   }
 
@@ -175,6 +182,12 @@ function createMainWindow() {
   }
 
   mainWindow = new BrowserWindow(windowOptions)
+
+  attachNavigationGuards(mainWindow.webContents, navOptions)
+  mainWindow.webContents.setWindowOpenHandler(({ url: linkUrl }) => {
+    openExternalHttps(shell, linkUrl)
+    return { action: "deny" }
+  })
 
   if (isDev) {
     mainWindow.loadURL(`http://localhost:${NEXT_PORT}`)
@@ -193,11 +206,6 @@ function createMainWindow() {
   })
 
   mainWindow.on("closed", () => { mainWindow = null })
-
-  mainWindow.webContents.setWindowOpenHandler(({ url: linkUrl }) => {
-    shell.openExternal(linkUrl)
-    return { action: "deny" }
-  })
 
   if (!isDev) {
     mainWindow.webContents.on("did-fail-load", (_event, errorCode, errorDescription, validatedURL) => {
@@ -323,17 +331,10 @@ app.whenReady().then(() => {
   if (!isDev) {
     const outDir = path.join(__dirname, "..", "out")
     protocol.handle("app", (request) => {
-      const pathname = decodeURIComponent(new URL(request.url).pathname)
-      let filePath = path.join(outDir, pathname)
-
-      if (fs.existsSync(filePath) && fs.statSync(filePath).isDirectory()) {
-        filePath = path.join(filePath, "index.html")
+      const filePath = resolveAppProtocolPath(outDir, request.url)
+      if (!filePath) {
+        return new Response("Not found", { status: 404, headers: { "content-type": "text/plain" } })
       }
-
-      if (!fs.existsSync(filePath)) {
-        filePath = path.join(outDir, "index.html")
-      }
-
       return net.fetch(`file://${filePath}`)
     })
   }

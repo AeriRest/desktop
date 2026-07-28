@@ -49,6 +49,7 @@ export function getApiErrorDetail(error: unknown, fallback: string): string {
 const SEND_REQUEST_TIMEOUT_MS = 45_000
 
 import { getApiBase } from "@/lib/config"
+import { getSessionToken } from "@/lib/session-storage"
 
 function getApiBaseUrl(): string {
   return getApiBase()
@@ -56,7 +57,7 @@ function getApiBaseUrl(): string {
 
 function getAuthToken(): string | null {
   if (typeof window === "undefined") return null
-  return localStorage.getItem("aeri_session_token")
+  return getSessionToken(localStorage)
 }
 
 async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {

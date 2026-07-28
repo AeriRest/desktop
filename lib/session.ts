@@ -1,4 +1,12 @@
 import { getApiBase } from "@/lib/config"
+import {
+  clearLegacyAccountCode,
+  clearSessionStorage,
+  getSessionToken,
+  getStoredAccountCode as readStoredAccountCode,
+  setSessionToken,
+  storeAccountCode as writeAccountCode,
+} from "@/lib/session-storage"
 
 export type UserSession = {
   accountId: string
@@ -16,9 +24,13 @@ function canUseStorage() {
   return typeof window !== "undefined"
 }
 
+function storage() {
+  return window.localStorage
+}
+
 export async function fetchSession(): Promise<SessionState> {
   if (!canUseStorage()) return null
-  const token = localStorage.getItem("aeri_session_token")
+  const token = getSessionToken(storage())
   if (!token) return null
 
   try {
@@ -26,7 +38,7 @@ export async function fetchSession(): Promise<SessionState> {
       headers: { Authorization: `Bearer ${token}` },
     })
     if (!response.ok) {
-      localStorage.removeItem("aeri_session_token")
+      clearSessionStorage(storage())
       return null
     }
     const account = await response.json() as {
@@ -85,23 +97,22 @@ export async function establishSession(
     throw new SessionError("Login failed", 500)
   }
 
-  localStorage.setItem("aeri_session_token", data.access_token)
-  localStorage.setItem("aerimail_account_code", accountCode)
+  setSessionToken(storage(), data.access_token)
+  clearLegacyAccountCode(storage())
   return {}
 }
 
 export async function logoutSession(): Promise<void> {
-  localStorage.removeItem("aeri_session_token")
-  localStorage.removeItem("aerimail_account_code")
+  if (canUseStorage()) clearSessionStorage(storage())
 }
 
 export function getStoredAccountCode(): string | null {
   if (!canUseStorage()) return null
-  return localStorage.getItem("aerimail_account_code")
+  return readStoredAccountCode(storage())
 }
 
 export function storeAccountCode(code: string) {
-  if (canUseStorage()) localStorage.setItem("aerimail_account_code", code)
+  if (canUseStorage()) writeAccountCode(storage(), code)
 }
 
 export class SessionError extends Error {

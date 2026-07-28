@@ -28,6 +28,7 @@ import type { Message as ApiMessage } from "@/lib/types/api"
 import { senderDisplayName, senderColor, type DemoAlias, type DemoMessage, type InboxView, type ListDensity, type MessageKind } from "@/lib/demo-inbox"
 import { formatMessageListTime, formatWhen } from "@/lib/format-time"
 import { FREE_ALIAS_LIMIT } from "@/lib/plans"
+import { clearSessionStorage } from "@/lib/session-storage"
 
 import { cn } from "@/lib/utils"
 import { MessageBody } from "@/components/message-body"
@@ -84,7 +85,7 @@ function SenderAvatar({ message }: { message: DemoMessage }) {
 }
 
 function handleAuthFailure(router: ReturnType<typeof useRouter>) {
-  localStorage.removeItem("aeri_session_token")
+  clearSessionStorage(localStorage)
   if (window.electronAPI?.forceSignIn) window.electronAPI.forceSignIn()
   else router.replace("/sign-in")
 }
@@ -395,8 +396,7 @@ export function DesktopInbox({ primaryAlias, domain }: InboxProps) {
   const showUpgrade = useCallback(() => { setComposeOpen(false); setUpgradeOpen(true) }, [])
 
   const handleLogout = useCallback(() => {
-    localStorage.removeItem("aeri_session_token")
-    localStorage.removeItem("aerimail_account_code")
+    clearSessionStorage(localStorage)
     if (window.electronAPI?.forceSignIn) window.electronAPI.forceSignIn()
     else window.location.href = "/sign-in"
   }, [])

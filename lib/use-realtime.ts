@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react"
 import { getApiBase } from "@/lib/config"
+import { clearSessionStorage, getSessionToken } from "@/lib/session-storage"
 import { type RealtimeEvent } from "@/lib/realtime"
 const MAX_RETRIES = 10
 const BASE_RETRY_MS = 3000
@@ -37,7 +38,7 @@ export function useRealtime({ onInboxChanged, onAliasesChanged, onBillingChanged
     let retries = 0
 
     function getToken(): string | null {
-      return localStorage.getItem("aeri_session_token")
+      return getSessionToken(localStorage)
     }
 
     function isTokenExpired(token: string | null): boolean {
@@ -53,7 +54,7 @@ export function useRealtime({ onInboxChanged, onAliasesChanged, onBillingChanged
 
     function expireSession() {
       console.log("[aeri] session expired, clearing token and navigating to sign-in")
-      localStorage.removeItem("aeri_session_token")
+      clearSessionStorage(localStorage)
       setConnected(false)
       setReconnecting(false)
       if (window.electronAPI?.forceSignIn) {
