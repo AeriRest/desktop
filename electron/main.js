@@ -1,16 +1,32 @@
 const { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, shell, protocol, net, screen } = require("electron")
+const fs = require("fs")
+const os = require("os")
 const path = require("path")
 const {
   attachNavigationGuards,
   openExternalHttps,
   resolveAppProtocolPath,
 } = require("./security")
+const {
+  isTrustedGithubDownloadUrl,
+  loadUpdatePublicKey,
+  verifyArtifactBytes,
+  verifyReleaseUpdateIntegrity,
+} = require("./update-verify")
 
 const isDev = !app.isPackaged
 const API_URL = process.env.API_URL || "https://api.aeri.rest"
 const GITHUB_REPO = process.env.GITHUB_REPO || "aerirest/desktop"
 const NEXT_PORT = 3000
 const navOptions = { isDev, nextPort: NEXT_PORT }
+let updatePublicKeyPem = null
+
+function getUpdatePublicKey() {
+  if (!updatePublicKeyPem) {
+    updatePublicKeyPem = loadUpdatePublicKey()
+  }
+  return updatePublicKeyPem
+}
 
 if (!isDev) {
   protocol.registerSchemesAsPrivileged([
@@ -374,8 +390,8 @@ ipcMain.handle("get-platform", () => process.platform)
 ipcMain.handle("is-dev", () => isDev)
 ipcMain.handle("get-app-version", () => app.getVersion())
 
-// Update checker
 let updateCheckResult = null
+let updateInstallInFlight = false
 
 function parseVersion(v) {
   return v.split(".").map(Number)
@@ -391,6 +407,42 @@ function isNewerVersion(latest, current) {
     if (l < c) return false
   }
   return false
+}
+
+function emptyUpdateResult(currentVersion, latestVersion, releaseUrl) {
+  return {
+    currentVersion,
+    latestVersion,
+    updateAvailable: false,
+    downloadUrl: null,
+    releaseNotes: null,
+    releaseUrl: releaseUrl || null,
+    integrityVerified: false,
+    verificationError: null,
+    expectedSha256: null,
+    artifactName: null,
+  }
+}
+
+async function fetchReleaseBuffer(urlString) {
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 60_000)
+  try {
+    const response = await fetch(urlString, {
+      signal: controller.signal,
+      redirect: "follow",
+      headers: {
+        Accept: "application/octet-stream",
+        "User-Agent": "aeri-desktop-updater",
+      },
+    })
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`)
+    }
+    return Buffer.from(await response.arrayBuffer())
+  } finally {
+    clearTimeout(timeout)
+  }
 }
 
 async function checkForUpdates() {
@@ -410,25 +462,32 @@ async function checkForUpdates() {
     const data = await response.json()
     const tagName = (data.tag_name || "").replace(/^v/, "")
     const currentVersion = app.getVersion()
+    const releaseUrl = data.html_url || null
 
     if (!tagName || !isNewerVersion(tagName, currentVersion)) {
-      updateCheckResult = { currentVersion, latestVersion: tagName, updateAvailable: false, downloadUrl: null, releaseNotes: null, releaseUrl: data.html_url || null }
+      updateCheckResult = emptyUpdateResult(currentVersion, tagName || null, releaseUrl)
       return updateCheckResult
     }
 
-    const macAsset = (data.assets || []).find(a => /\.dmg$/i.test(a.name))
-    const winAsset = (data.assets || []).find(a => /\.exe$/i.test(a.name))
-    const downloadUrl = process.platform === "darwin"
-      ? (macAsset?.browser_download_url || null)
-      : (winAsset?.browser_download_url || null)
+    const integrity = await verifyReleaseUpdateIntegrity({
+      assets: data.assets || [],
+      platform: process.platform,
+      repo: GITHUB_REPO,
+      publicKeyPem: getUpdatePublicKey(),
+      fetchBuffer: fetchReleaseBuffer,
+    })
 
     const result = {
       currentVersion,
       latestVersion: tagName,
       updateAvailable: true,
-      downloadUrl,
+      downloadUrl: integrity.ok ? integrity.downloadUrl : null,
       releaseNotes: data.body || null,
-      releaseUrl: data.html_url || null,
+      releaseUrl,
+      integrityVerified: Boolean(integrity.ok),
+      verificationError: integrity.ok ? null : (integrity.reason || "unverified"),
+      expectedSha256: integrity.ok ? integrity.expectedSha256 : null,
+      artifactName: integrity.artifact?.name || null,
     }
     updateCheckResult = result
     if (mainWindow && !mainWindow.isDestroyed()) {
@@ -441,12 +500,50 @@ async function checkForUpdates() {
   }
 }
 
+async function openVerifiedUpdate() {
+  if (updateInstallInFlight) {
+    return { ok: false, error: "download-in-progress" }
+  }
+  const result = updateCheckResult
+  if (!result?.updateAvailable) {
+    return { ok: false, error: "no-update" }
+  }
+  if (!result.integrityVerified || !result.downloadUrl || !result.expectedSha256 || !result.artifactName) {
+    return { ok: false, error: result?.verificationError || "integrity-not-verified" }
+  }
+  if (!isTrustedGithubDownloadUrl(result.downloadUrl, GITHUB_REPO)) {
+    return { ok: false, error: "untrusted-download-url" }
+  }
+
+  updateInstallInFlight = true
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "aeri-update-"))
+  const destPath = path.join(tempDir, path.basename(result.artifactName))
+  try {
+    const data = await fetchReleaseBuffer(result.downloadUrl)
+    const hashCheck = verifyArtifactBytes({ data, expectedSha256: result.expectedSha256 })
+    if (!hashCheck.ok) {
+      return { ok: false, error: hashCheck.reason || "hash-mismatch" }
+    }
+    fs.writeFileSync(destPath, data)
+    const openError = await shell.openPath(destPath)
+    if (openError) {
+      return { ok: false, error: openError }
+    }
+    return { ok: true, path: destPath }
+  } catch (err) {
+    return { ok: false, error: err.message || "download-failed" }
+  } finally {
+    updateInstallInFlight = false
+  }
+}
+
 ipcMain.handle("check-for-updates", async () => {
-  if (updateCheckResult) return updateCheckResult
   return checkForUpdates()
 })
 
 ipcMain.handle("get-update-result", () => updateCheckResult)
+
+ipcMain.handle("open-verified-update", async () => openVerifiedUpdate())
 
 // Tray panel IPC
 ipcMain.on("tray-select-alias", (_event, handle) => {

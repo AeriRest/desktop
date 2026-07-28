@@ -31,6 +31,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   // Update checker
   checkForUpdates: () => ipcRenderer.invoke("check-for-updates"),
   getUpdateResult: () => ipcRenderer.invoke("get-update-result"),
+  openVerifiedUpdate: () => ipcRenderer.invoke("open-verified-update"),
   getAppVersion: () => ipcRenderer.invoke("get-app-version"),
   onUpdateAvailable: (callback) => ipcRenderer.on("update-available", (_event, result) => callback(result)),
   onUpdateCheckResult: (callback) => ipcRenderer.on("update-check-result", (_event, result) => callback(result)),

@@ -8,3 +8,6 @@ dist-electron/
 misc/
 .DS_Store
 Thumbs.db
+
+electron/keys/*.priv.pem
+electron/keys/*.priv.pem.b64

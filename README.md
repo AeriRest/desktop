@@ -40,7 +40,7 @@ Produces an Apple Silicon DMG in `dist-electron/` (`aeri-1.0.4-arm64.dmg`). The 
 - **React 19** + **Motion** — UI and animations
 - **Tailwind CSS 4** — styling with CSS variable theming
 
-See [SECURITY.md](./SECURITY.md) for Electron hardening and credential storage rules.
+See [SECURITY.md](./SECURITY.md) for Electron hardening, credential storage, and **release signing / update integrity** (ed25519 + SHA256SUMS).
 
 ## Tests
 
@@ -48,15 +48,26 @@ See [SECURITY.md](./SECURITY.md) for Electron hardening and credential storage r
 npm test
 ```
 
+## Sign a release
+
+After `npm run build` (or Windows build), sign artifacts before uploading to GitHub Releases:
+
+```bash
+node scripts/sign-release.js --dir dist-electron --key /path/to/update-ed25519.priv.pem
+```
+
+Upload `SHA256SUMS` and `SHA256SUMS.sig` with the installers. Details in [SECURITY.md](./SECURITY.md).
+
 ## Project structure
 
 ```
-electron/          Electron main process + preload
+electron/          Electron main process + preload + update verification
 app/               Next.js pages (onboarding, sign-in, inbox)
 components/        UI components (inbox, compose, modals)
 lib/               API client, auth, types, utilities
 public/            Static assets (icon)
 build/             macOS entitlements for packaging
+scripts/           Icon/DMG helpers + release signing
 ```
 
 ## License

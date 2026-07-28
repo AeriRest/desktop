@@ -27,6 +27,23 @@ function isAllowedExternalUrl(urlString) {
   return url.protocol === "https:"
 }
 
+function isBlockedUnsignedUpdateAssetUrl(urlString) {
+  let url
+  try {
+    url = new URL(urlString)
+  } catch {
+    return false
+  }
+  if (url.protocol !== "https:") return false
+  const host = url.hostname.toLowerCase()
+  const pathname = url.pathname
+  const isInstallArtifact = /\.(dmg|exe|msi|appimage|zip)(\/|$)/i.test(pathname)
+  if (!isInstallArtifact) return false
+  if (host === "github.com" && /\/releases\/download\//i.test(pathname)) return true
+  if (host === "objects.githubusercontent.com" || host.endsWith(".githubusercontent.com")) return true
+  return false
+}
+
 function resolveAppProtocolPath(outDir, requestUrl) {
   const root = path.resolve(outDir)
   let pathname
@@ -69,6 +86,7 @@ function attachNavigationGuards(webContents, options = {}) {
 
 function openExternalHttps(shell, urlString) {
   if (!isAllowedExternalUrl(urlString)) return false
+  if (isBlockedUnsignedUpdateAssetUrl(urlString)) return false
   shell.openExternal(urlString)
   return true
 }
@@ -76,6 +94,7 @@ function openExternalHttps(shell, urlString) {
 module.exports = {
   isAllowedNavigationUrl,
   isAllowedExternalUrl,
+  isBlockedUnsignedUpdateAssetUrl,
   resolveAppProtocolPath,
   attachNavigationGuards,
   openExternalHttps,

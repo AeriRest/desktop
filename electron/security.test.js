@@ -6,6 +6,7 @@ const path = require("path")
 const {
   isAllowedNavigationUrl,
   isAllowedExternalUrl,
+  isBlockedUnsignedUpdateAssetUrl,
   resolveAppProtocolPath,
 } = require("./security")
 
@@ -35,6 +36,28 @@ describe("isAllowedExternalUrl", () => {
     assert.equal(isAllowedExternalUrl("mailto:user@example.com"), false)
     assert.equal(isAllowedExternalUrl("javascript:alert(1)"), false)
     assert.equal(isAllowedExternalUrl("not-a-url"), false)
+  })
+})
+
+describe("isBlockedUnsignedUpdateAssetUrl", () => {
+  it("blocks GitHub release installers opened without verification", () => {
+    assert.equal(
+      isBlockedUnsignedUpdateAssetUrl(
+        "https://github.com/aerirest/desktop/releases/download/v1.0.0/aeri-1.0.0-arm64.dmg",
+      ),
+      true,
+    )
+    assert.equal(
+      isBlockedUnsignedUpdateAssetUrl(
+        "https://objects.githubusercontent.com/github-production-release-asset-2e65be/1/aeri.exe",
+      ),
+      true,
+    )
+    assert.equal(
+      isBlockedUnsignedUpdateAssetUrl("https://github.com/aerirest/desktop/releases/tag/v1.0.0"),
+      false,
+    )
+    assert.equal(isBlockedUnsignedUpdateAssetUrl("https://aeri.rest/docs"), false)
   })
 })
 

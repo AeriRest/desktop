@@ -5,6 +5,16 @@ type UpdateCheckResult = {
   downloadUrl: string | null
   releaseNotes: string | null
   releaseUrl: string | null
+  integrityVerified: boolean
+  verificationError: string | null
+  expectedSha256: string | null
+  artifactName: string | null
+}
+
+type OpenVerifiedUpdateResult = {
+  ok: boolean
+  error?: string
+  path?: string
 }
 
 interface ElectronAPI {
@@ -22,6 +32,7 @@ interface ElectronAPI {
   forceSignIn: () => void
   checkForUpdates: () => Promise<UpdateCheckResult | null>
   getUpdateResult: () => Promise<UpdateCheckResult | null>
+  openVerifiedUpdate: () => Promise<OpenVerifiedUpdateResult>
   onUpdateAvailable: (callback: (result: UpdateCheckResult) => void) => void
   onUpdateCheckResult: (callback: (result: UpdateCheckResult) => void) => void
 }
@@ -32,4 +43,4 @@ declare global {
   }
 }
 
-export type { ElectronAPI, UpdateCheckResult }
+export type { ElectronAPI, OpenVerifiedUpdateResult, UpdateCheckResult }

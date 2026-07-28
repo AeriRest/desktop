@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
-import { motion, AnimatePresence, useReducedMotion } from "motion/react"
+import { motion, useReducedMotion } from "motion/react"
 import { Icon } from "@/components/icon"
 import { morphEase } from "@/lib/motion"
 import { cn } from "@/lib/utils"
@@ -12,6 +12,8 @@ export function UpdateNotification() {
   const [updateResult, setUpdateResult] = useState<UpdateCheckResult | null>(null)
   const [dismissed, setDismissed] = useState(false)
   const [checking, setChecking] = useState(false)
+  const [downloading, setDownloading] = useState(false)
+  const [downloadError, setDownloadError] = useState<string | null>(null)
   const [noUpdateMessage, setNoUpdateMessage] = useState(false)
 
   useEffect(() => {
@@ -20,11 +22,13 @@ export function UpdateNotification() {
     window.electronAPI.onUpdateAvailable((result) => {
       setUpdateResult(result)
       setDismissed(false)
+      setDownloadError(null)
     })
 
     window.electronAPI.onUpdateCheckResult((result) => {
       setUpdateResult(result)
       setDismissed(false)
+      setDownloadError(null)
       if (result && !result.updateAvailable) {
         setNoUpdateMessage(true)
         setTimeout(() => setNoUpdateMessage(false), 4000)
@@ -42,6 +46,7 @@ export function UpdateNotification() {
     if (typeof window === "undefined" || !window.electronAPI) return
     setChecking(true)
     setNoUpdateMessage(false)
+    setDownloadError(null)
     try {
       const result = await window.electronAPI.checkForUpdates()
       if (result) {
@@ -58,14 +63,28 @@ export function UpdateNotification() {
     }
   }, [])
 
-  const handleDownload = useCallback(() => {
-    const url = updateResult?.downloadUrl || updateResult?.releaseUrl || "https://aeri.rest"
-    if (typeof window !== "undefined") {
-      window.open(url, "_blank")
+  const handleDownload = useCallback(async () => {
+    if (typeof window === "undefined" || !window.electronAPI) return
+    if (!updateResult?.integrityVerified) {
+      setDownloadError("Update signature missing or invalid")
+      return
+    }
+    setDownloading(true)
+    setDownloadError(null)
+    try {
+      const result = await window.electronAPI.openVerifiedUpdate()
+      if (!result?.ok) {
+        setDownloadError(result?.error || "Download failed")
+      }
+    } catch {
+      setDownloadError("Download failed")
+    } finally {
+      setDownloading(false)
     }
   }, [updateResult])
 
   const updateAvailable = updateResult?.updateAvailable && !dismissed
+  const canDownload = Boolean(updateResult?.integrityVerified && updateResult?.downloadUrl)
 
   return (
     <>
@@ -76,11 +95,28 @@ export function UpdateNotification() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: reduced ? 0.01 : 0.24, ease: morphEase }}
           onClick={handleDownload}
-          className="inline-flex items-center gap-1 rounded-full border border-accent/25 bg-accent/10 px-2 py-0.5 text-[10px] text-accent transition-colors hover:bg-accent/20"
-          title={`Download v${updateResult?.latestVersion}`}
+          disabled={!canDownload || downloading}
+          className={cn(
+            "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] transition-colors",
+            canDownload
+              ? "border-accent/25 bg-accent/10 text-accent hover:bg-accent/20"
+              : "border-border/40 bg-muted/30 text-muted-foreground/50 cursor-not-allowed",
+          )}
+          title={
+            canDownload
+              ? `Download verified v${updateResult?.latestVersion}`
+              : downloadError || updateResult?.verificationError || "Update available but not signed"
+          }
         >
-          <Icon icon="ph:arrow-circle-down" className="size-3" />
-          Update v{updateResult?.latestVersion}
+          <Icon
+            icon={downloading ? "ph:spinner" : canDownload ? "ph:arrow-circle-down" : "ph:warning-circle"}
+            className={cn("size-3", downloading && "animate-spin")}
+          />
+          {downloading
+            ? "Verifying…"
+            : canDownload
+              ? `Update v${updateResult?.latestVersion}`
+              : `Update v${updateResult?.latestVersion} (unverified)`}
         </motion.button>
       )}
 
