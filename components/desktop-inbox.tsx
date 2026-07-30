@@ -331,7 +331,25 @@ export function DesktopInbox({ primaryAlias, domain }: InboxProps) {
     const epoch = ++messagesLoadEpochRef.current
     const data = await listMessages({ view, alias: selectedAlias || undefined, search: debouncedSearch.trim() || undefined, unread: filterUnread || undefined, has_attachment: filterAttachments || undefined })
     if (epoch !== messagesLoadEpochRef.current) return
-    setMessages(data.messages.map(toDemoMessage))
+    setMessages((prev) => {
+      const prevById = new Map(prev.map((message) => [message.id, message]))
+      return data.messages.map((message) => {
+        const mapped = toDemoMessage(message)
+        const existing = prevById.get(mapped.id)
+        if (!existing) return mapped
+        const listLacksBody = !mapped.body && !mapped.bodyHtml
+        if (!listLacksBody) return mapped
+        return {
+          ...mapped,
+          body: existing.body,
+          bodyHtml: existing.bodyHtml,
+          envelopeSender: existing.envelopeSender ?? mapped.envelopeSender,
+          messageIdHeader: existing.messageIdHeader ?? mapped.messageIdHeader,
+          referencesHeader: existing.referencesHeader ?? mapped.referencesHeader,
+          attachments: mapped.attachments ?? existing.attachments,
+        }
+      })
+    })
   }, [view, selectedAlias, debouncedSearch, filterUnread, filterAttachments])
 
   const refreshInbox = useCallback(async () => {
