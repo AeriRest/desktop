@@ -3,6 +3,7 @@
 import { useMemo, useState, type ReactNode } from "react"
 import DOMPurify, { type Config } from "dompurify"
 import { Icon } from "@/components/icon"
+import { emailHtmlPaperClassName } from "@/lib/email-html-paper"
 import { cn } from "@/lib/utils"
 
 const URL_PATTERN = /(https?:\/\/[^\s<]+[^\s<.,;:!?)"'\]])/gi
@@ -143,20 +144,6 @@ const plainBodyClassName = cn(
   "[&_a]:text-accent [&_a]:underline [&_a]:underline-offset-2 [&_a]:hover:text-accent/80",
 )
 
-const htmlBodyClassName = cn(
-  "email-html-body mt-6 max-w-full overflow-x-auto text-sm leading-relaxed text-foreground break-words",
-  "[&_a]:text-accent [&_a]:underline [&_a]:underline-offset-2 [&_a]:hover:text-accent/80",
-  "[&_img]:my-2 [&_img]:max-w-full [&_img]:h-auto [&_img]:rounded-md",
-  "[&_p]:mb-3 [&_ul]:my-2 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:my-2 [&_ol]:list-decimal [&_ol]:pl-5",
-  "[&_h1]:mb-3 [&_h1]:text-xl [&_h1]:font-semibold [&_h1]:tracking-tight [&_h1]:text-foreground",
-  "[&_h2]:mb-2 [&_h2]:text-lg [&_h2]:font-semibold [&_h2]:text-foreground",
-  "[&_h3]:mb-2 [&_h3]:text-base [&_h3]:font-semibold [&_h3]:text-foreground",
-  "[&_strong]:font-semibold [&_strong]:text-foreground [&_b]:font-semibold [&_b]:text-foreground",
-  "[&_em]:italic [&_i]:italic",
-  "[&_table]:my-3 [&_table]:w-full [&_table]:max-w-full [&_table]:border-collapse",
-  "[&_td]:align-top [&_td]:break-words [&_td]:p-2 [&_th]:align-top [&_th]:break-words [&_th]:p-2 [&_th]:font-semibold",
-)
-
 type MessageBodyProps = {
   body: string
   bodyHtml?: string | null
@@ -188,7 +175,10 @@ export function MessageBody({ body, bodyHtml, className }: MessageBodyProps) {
         </button>
       )}
       {sanitizedHtml ? (
-        <div className={htmlBodyClassName} dangerouslySetInnerHTML={{ __html: sanitizedHtml }} />
+        <div
+          className={emailHtmlPaperClassName}
+          dangerouslySetInnerHTML={{ __html: sanitizedHtml }}
+        />
       ) : (
         <div className={plainBodyClassName}>{linkifyText(body)}</div>
       )}
